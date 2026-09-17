@@ -10,7 +10,7 @@ depends=('gcc-libs' 'nodejs' 'curl')
 optdepends=('zcode-bin: the ZCode runtime this client drives')
 makedepends=('cargo' 'git')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('3c7ccab4ac0af64f32f9803f263a4b386168e25d3d5debed07ef9ba6c5125d3f')
+sha256sums=('92eb363e43be687812eab657eca170b037df99a5651e3303ed5fd02859987fab')
 
 prepare() {
   cd "$pkgname-$pkgver"
