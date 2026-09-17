@@ -14,17 +14,16 @@ Electron.
 
 ## Install
 
-Arch Linux, from the release tarball:
+Arch Linux, from the release tarball. Build from a directory that holds only
+the PKGBUILD: makepkg uses `./src` as its work directory, and running it
+inside this repository clobbers the project's own `src/`.
 
 ```bash
-makepkg -si
+mkdir -p /tmp/zc-pkg && cp PKGBUILD /tmp/zc-pkg && cd /tmp/zc-pkg && paru -U
 ```
 
-Arch Linux, latest commit (uses `PKGBUILD-git`):
-
-```bash
-makepkg -si -p PKGBUILD-git
-```
+`makepkg -si` works the same way in that directory. For the latest commit,
+copy `PKGBUILD-git` instead and run `paru -U -p PKGBUILD-git`.
 
 Anywhere with a Rust toolchain:
 
