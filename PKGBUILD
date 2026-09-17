@@ -1,6 +1,6 @@
 # Maintainer: qatoqat
 pkgname=zc
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="Minimal terminal client for the ZCode agent runtime (no Electron)"
 arch=('x86_64' 'aarch64')

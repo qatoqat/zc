@@ -50,8 +50,9 @@ zc --thinking               stream the model's reasoning (dimmed)
 ```
 
 Inside the REPL: `/mode <m>`, `/model <provider/model>`, `/new`, `/sessions`,
-`/resume <id>`, `/thinking`, `/quit`. Ctrl-C stops the running turn; at the
-prompt it exits.
+`/resume <id>`, `/thinking`, `/quit`. The prompt has full line editing and
+arrow-key history, kept in `~/.local/share/zc/history`. Ctrl-C stops the
+running turn; at the prompt it exits.
 
 Permission requests from tools are shown with the runtime's own options
 (allow once, always allow in project, deny). In non-interactive use they are

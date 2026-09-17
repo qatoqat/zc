@@ -221,52 +221,11 @@ fn await_response(ui: &mut Ui, rx: &Receiver<Msg>, resp: Receiver<Value>) -> Res
 }
 
 // ---------- UI / event rendering ----------
-/// Lines typed by the user, read on a dedicated thread so prompts can also
-/// watch the Ctrl-C flag while waiting.
-struct Input {
-    rx: Receiver<String>,
-    stop: Arc<AtomicBool>,
-}
-
-impl Input {
-    fn start(stop: Arc<AtomicBool>) -> Input {
-        let (tx, rx) = mpsc::channel();
-        std::thread::spawn(move || {
-            let stdin = std::io::stdin();
-            let mut line = String::new();
-            loop {
-                line.clear();
-                match stdin.lock().read_line(&mut line) {
-                    Ok(0) | Err(_) => break,
-                    Ok(_) => {
-                        if tx.send(line.trim_end_matches(['\n', '\r']).to_string()).is_err() {
-                            break;
-                        }
-                    }
-                }
-            }
-        });
-        Input { rx, stop }
-    }
-
-    /// Next line, or None on EOF / Ctrl-C (when `cancellable`).
-    fn line(&self, cancellable: bool) -> Option<String> {
-        loop {
-            if cancellable && self.stop.load(Ordering::SeqCst) {
-                return None;
-            }
-            match self.rx.recv_timeout(Duration::from_millis(50)) {
-                Ok(l) => return Some(l),
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(_) => return None,
-            }
-        }
-    }
-}
-
 struct Ui {
     rpc: Arc<Rpc>,
-    input: Input,
+    editor: rustyline::DefaultEditor,
+    history_path: Option<std::path::PathBuf>,
+    stop: Arc<AtomicBool>,
     show_thinking: bool,
     interactive: bool,
     turn_done: bool,
@@ -278,6 +237,33 @@ struct Ui {
 }
 
 impl Ui {
+    /// Read one line with editing and history. None on Ctrl-C, Ctrl-D, or error;
+    /// Ctrl-C also raises the stop flag so a running turn is cancelled.
+    fn read(&mut self, prompt: &str) -> Option<String> {
+        match self.editor.readline(prompt) {
+            Ok(line) => {
+                if !line.trim().is_empty() {
+                    let _ = self.editor.add_history_entry(line.as_str());
+                }
+                Some(line)
+            }
+            Err(rustyline::error::ReadlineError::Interrupted) => {
+                self.stop.store(true, Ordering::SeqCst);
+                None
+            }
+            Err(_) => None,
+        }
+    }
+
+    fn save_history(&mut self) {
+        if let Some(p) = &self.history_path {
+            if let Some(dir) = p.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = self.editor.save_history(p);
+        }
+    }
+
     fn end_line(&mut self) {
         if self.in_text || self.in_thinking {
             println!("{RESET}");
@@ -339,10 +325,7 @@ impl Ui {
             println!("  {CYAN}{}{RESET}) {name} {DIM}{desc}{RESET}", i + 1);
         }
         loop {
-            print!("{BOLD}choice [1]:{RESET} ");
-            let _ = std::io::stdout().flush();
-            let Some(line) = self.input.line(true) else {
-                println!();
+            let Some(line) = self.read("choice [1]: ") else {
                 return json!({"decision": "deny", "reason": "Cancelled by user"});
             };
             let t = line.trim();
@@ -374,10 +357,7 @@ impl Ui {
             for (i, o) in opts.iter().enumerate() {
                 println!("  {CYAN}{}{RESET}) {} {DIM}{}{RESET}", i + 1, o["label"].as_str().unwrap_or("?"), o["description"].as_str().unwrap_or(""));
             }
-            print!("{BOLD}> {RESET}");
-            let _ = std::io::stdout().flush();
-            let Some(line) = self.input.line(true) else {
-                println!();
+            let Some(line) = self.read("> ") else {
                 return json!({"action": "decline"});
             };
             let t = line.trim().to_string();
@@ -658,9 +638,19 @@ fn main() {
     let interactive = std::io::stdin().is_terminal() && o.prompt.is_none();
     let (rpc, rx) = Rpc::spawn(&o.node, &o.runtime, &o.cwd);
     let stop_flag = Arc::new(AtomicBool::new(false));
+    let history_path = std::env::var("HOME").ok().map(|h| std::path::PathBuf::from(h).join(".local/share/zc/history"));
+    let mut editor = rustyline::DefaultEditor::new().unwrap_or_else(|e| {
+        eprintln!("{RED}cannot initialise line editor{RESET}: {e}");
+        std::process::exit(1)
+    });
+    if let Some(p) = &history_path {
+        let _ = editor.load_history(p);
+    }
     let mut ui = Ui {
         rpc: rpc.clone(),
-        input: Input::start(stop_flag.clone()),
+        editor,
+        history_path,
+        stop: stop_flag.clone(),
         show_thinking: o.show_thinking,
         interactive,
         turn_done: false,
@@ -736,9 +726,8 @@ fn main() {
         while let Ok(m) = rx.try_recv() {
             ui.handle(m);
         }
-        print!("\n{BOLD}{GREEN}>{RESET} ");
-        let _ = std::io::stdout().flush();
-        let Some(line) = ui.input.line(false) else { break };
+        println!();
+        let Some(line) = ui.read("> ") else { break };
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -785,6 +774,7 @@ fn main() {
         run_turn(&mut ui, &rx, &sid, line, &stop_flag);
         in_turn.store(false, Ordering::SeqCst);
     }
+    ui.save_history();
     let _ = await_response(&mut ui, &rx, rpc.request("session/close", json!({"sessionId": sid})));
     rpc.shutdown();
 }
